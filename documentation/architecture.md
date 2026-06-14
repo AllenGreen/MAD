@@ -1,5 +1,7 @@
 # MAD - Technical Architecture
 
+> See `implementation_status.md` for the current build state, what is and isn't actually wired up, coordinate-system conventions, and recommended next steps. This file describes the *target* architecture.
+
 ## Technology Stack
 
 - **Language**: Modern C++ (C++23)

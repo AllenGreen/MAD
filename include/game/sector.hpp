@@ -38,6 +38,10 @@ public:
     // Nexus cells: last-row cells that are walkable
     std::vector<CellCoord> nexus_cells() const;
 
+    // Summoning Crystal: mid-wedge position. Centered column, mid-depth row.
+    CellCoord crystal_cell() const;
+    WorldPos crystal_world() const;
+
     // Mark cells outside the wedge polygon as Blocked
     void mask_out_of_wedge_cells();
 

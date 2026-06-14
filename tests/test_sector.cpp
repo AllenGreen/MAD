@@ -188,6 +188,71 @@ TEST(sector_boundary_cells_adjacent) {
     return true;
 }
 
+TEST(crystal_at_mid_wedge) {
+    MapConfig config{.num_players = 4, .grid_width = 10, .grid_height = 15,
+                     .map_radius = 20.0, .cell_size = 1.0};
+    GameMap map(config);
+
+    CellCoord c = map.crystal_cell(0);
+    ASSERT_EQ(c.col, 5);
+    ASSERT_EQ(c.row, 7);
+    return true;
+}
+
+TEST(crystal_walkable_in_all_sectors) {
+    // For 3, 4, 5, 6 players, the crystal at (width/2, height/2) should be
+    // safely inside the wedge (not masked Blocked).
+    for (int n : {3, 4, 5, 6}) {
+        MapConfig config{.num_players = n, .grid_width = 20, .grid_height = 20,
+                         .map_radius = 30.0, .cell_size = 1.0};
+        GameMap map(config);
+        for (int s = 0; s < n; ++s) {
+            ASSERT_TRUE(map.sector(s).grid().is_walkable(map.crystal_cell(s)));
+        }
+    }
+    return true;
+}
+
+TEST(crystal_world_positions_distinct) {
+    // Sectors rotate around origin; each sector's crystal should be at a
+    // different world location.
+    MapConfig config{.num_players = 4, .grid_width = 10, .grid_height = 15,
+                     .map_radius = 20.0, .cell_size = 1.0};
+    GameMap map(config);
+
+    WorldPos w0 = map.crystal_world(0);
+    WorldPos w1 = map.crystal_world(1);
+    WorldPos w2 = map.crystal_world(2);
+
+    // Sector 0 (rotation=0) crystal sits along +Y, with x ~ 0 and y > 0
+    ASSERT_TRUE(std::abs(w0.x) < 1.0);
+    ASSERT_TRUE(w0.y > 0.0);
+
+    // Sector 1 (rotation=pi/2) crystal is rotated 90° CW: +X side
+    ASSERT_TRUE(w1.x > 0.0);
+    ASSERT_TRUE(std::abs(w1.y) < 1.0);
+
+    // Sector 2 (rotation=pi) crystal is on -Y side
+    ASSERT_TRUE(std::abs(w2.x) < 1.0);
+    ASSERT_TRUE(w2.y < 0.0);
+
+    return true;
+}
+
+TEST(crystal_between_portal_and_nexus) {
+    // Crystal distance from origin should sit between nexus (near 0) and
+    // portal (near map_radius).
+    MapConfig config{.num_players = 4, .grid_width = 10, .grid_height = 15,
+                     .map_radius = 20.0, .cell_size = 1.0};
+    GameMap map(config);
+
+    WorldPos w = map.crystal_world(0);
+    double dist = std::sqrt(w.x * w.x + w.y * w.y);
+    ASSERT_TRUE(dist > 2.0);
+    ASSERT_TRUE(dist < config.map_radius);
+    return true;
+}
+
 TEST(sector_5_players) {
     MapConfig config{.num_players = 5, .grid_width = 12, .grid_height = 20,
                      .map_radius = 30.0, .cell_size = 1.0};

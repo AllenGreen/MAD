@@ -100,6 +100,14 @@ std::vector<CellCoord> Sector::portal_cells() const {
     return cells;
 }
 
+CellCoord Sector::crystal_cell() const {
+    return {grid_.width() / 2, grid_.height() / 2};
+}
+
+WorldPos Sector::crystal_world() const {
+    return cell_to_world(crystal_cell());
+}
+
 std::vector<CellCoord> Sector::nexus_cells() const {
     std::vector<CellCoord> cells;
     int last_row = grid_.height() - 1;

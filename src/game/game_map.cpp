@@ -106,4 +106,12 @@ std::vector<CellCoord> GameMap::nexus_cells(int sector_id) const {
     return sectors_[sector_id].nexus_cells();
 }
 
+CellCoord GameMap::crystal_cell(int sector_id) const {
+    return sectors_[sector_id].crystal_cell();
+}
+
+WorldPos GameMap::crystal_world(int sector_id) const {
+    return sectors_[sector_id].crystal_world();
+}
+
 } // namespace mad::game

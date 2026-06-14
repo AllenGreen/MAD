@@ -44,6 +44,10 @@ public:
     // Nexus cells for a sector (last row, walkable)
     std::vector<CellCoord> nexus_cells(int sector_id) const;
 
+    // Summoning Crystal: per-sector mid-wedge cell and world position.
+    CellCoord crystal_cell(int sector_id) const;
+    WorldPos crystal_world(int sector_id) const;
+
 private:
     MapConfig config_;
     std::vector<Sector> sectors_;
