@@ -56,50 +56,30 @@ bool Grid::walls_block_move(CellCoord from, CellCoord to) const {
         return walls_->blocks_ground({to, EdgeType::Vertical});
     }
 
-    // Diagonal moves: check the diagonal edge AND corner-cutting
-    if (dc == 1 && dr == -1) {
-        // Moving NE: check DiagNE edge from 'from'
-        if (walls_->blocks_ground({from, EdgeType::DiagNE}))
-            return true;
-        // Corner-cutting: if both the north and east cardinal edges are walled,
-        // the diagonal is blocked (can't squeeze through an L-shaped wall)
-        bool blocked_north = walls_->blocks_ground({from, EdgeType::Horizontal});
-        bool blocked_east = walls_->blocks_ground({{from.col + 1, from.row}, EdgeType::Vertical});
-        if (blocked_north && blocked_east) return true;
-        return false;
-    }
-    if (dc == -1 && dr == -1) {
-        // Moving NW: check DiagNW edge from 'from'
-        if (walls_->blocks_ground({from, EdgeType::DiagNW}))
-            return true;
-        // Corner-cutting: west wall + north wall
-        bool blocked_west = walls_->blocks_ground({from, EdgeType::Vertical});
-        bool blocked_north = walls_->blocks_ground({from, EdgeType::Horizontal});
-        if (blocked_west && blocked_north) return true;
-        return false;
-    }
-    if (dc == 1 && dr == 1) {
-        // Moving SE: check DiagNW edge from 'to' (same physical edge as DiagNW from to's perspective)
-        // (c,r) -> (c+1, r+1). The diagonal edge between them:
-        // From (c+1, r+1) looking NW = DiagNW at (c+1, r+1) connects to (c, r). Yes.
-        if (walls_->blocks_ground({to, EdgeType::DiagNW}))
-            return true;
-        // Corner-cutting: east + south
-        bool blocked_east = walls_->blocks_ground({{from.col + 1, from.row}, EdgeType::Vertical});
-        bool blocked_south = walls_->blocks_ground({{from.col, from.row + 1}, EdgeType::Horizontal});
-        if (blocked_east && blocked_south) return true;
-        return false;
-    }
-    if (dc == -1 && dr == 1) {
-        // Moving SW: check DiagNE edge from 'to'
-        // (c,r) -> (c-1, r+1). From (c-1, r+1) looking NE = DiagNE at (c-1,r+1) connects to (c, r). Yes.
-        if (walls_->blocks_ground({to, EdgeType::DiagNE}))
-            return true;
-        // Corner-cutting: west + south
-        bool blocked_west = walls_->blocks_ground({from, EdgeType::Vertical});
-        bool blocked_south = walls_->blocks_ground({{from.col, from.row + 1}, EdgeType::Horizontal});
-        if (blocked_west && blocked_south) return true;
-        return false;
+    // Diagonal moves: strict, SYMMETRIC no-corner-cutting. A wall is a solid
+    // barrier, so a diagonal is blocked by its own diagonal edge OR by ANY of the
+    // four cardinal edges meeting at the corner vertex the diagonal passes
+    // through. Computing those four edges from the shared vertex gives the same
+    // answer in both directions, so can_move(A,B) == can_move(B,A) -- essential
+    // for flow fields (an asymmetric rule strands units at wall corners).
+    if (dc != 0 && dr != 0) {
+        auto H = [&](int c, int r) {
+            return walls_->blocks_ground({{c, r}, EdgeType::Horizontal});
+        };
+        auto V = [&](int c, int r) {
+            return walls_->blocks_ground({{c, r}, EdgeType::Vertical});
+        };
+        const int vcol = dc > 0 ? from.col + 1 : from.col; // vertical edges' column
+        const int hrow = dr > 0 ? from.row + 1 : from.row; // horizontal edges' row
+        if (V(vcol, from.row)) return true;        // from <-> (c+dc, r)
+        if (V(vcol, from.row + dr)) return true;   // (c, r+dr) <-> to
+        if (H(from.col, hrow)) return true;        // from <-> (c, r+dr)
+        if (H(from.col + dc, hrow)) return true;   // (c+dc, r) <-> to
+        // The diagonal edge itself (named from whichever cell owns it).
+        if (dc > 0 && dr < 0) return walls_->blocks_ground({from, EdgeType::DiagNE});
+        if (dc < 0 && dr < 0) return walls_->blocks_ground({from, EdgeType::DiagNW});
+        if (dc > 0 && dr > 0) return walls_->blocks_ground({to, EdgeType::DiagNW});
+        return walls_->blocks_ground({to, EdgeType::DiagNE}); // dc<0 && dr>0
     }
 
     return false; // not adjacent

@@ -1,0 +1,21 @@
+<h3>Border walls: shaping paths at the seam between players</h3>
+<p>Each player defends a wedge with its own rotated grid. Two build options let a
+player shape how demons move through their wedge and across the seam where the
+two coordinate systems meet. The blue lines are demon <strong>path trails</strong>.</p>
+<p><span class="sw" style="background:#d8b46e"></span>
+<strong>PERP rung</strong> (perpendicular to the border) &mdash; a tangential wall
+spanning the wedge at one ring, with a gap left at one border. Stacking rungs with
+the gap alternating border-to-border forces demons to <strong>zig-zag</strong>:
+they can only get closer to the center when they reach a border and drop through
+its gap. Watch a single demon snake left&ndash;right&ndash;left down player 0's
+wedge.</p>
+<p><span class="sw" style="background:#f05a5a"></span>
+<strong>ALONG wall</strong> (along the border) &mdash; a segment lying on the seam
+that seals <em>crossing</em> at that ring. Here player 0 seals its whole seam with
+player 1 except the center-most ring, so after snaking down, demons must exit at
+the center. Pathfinding reroutes automatically &mdash; sealed crossings are
+dropped from the flow field.</p>
+<p>Because a crossing joins cells at the <em>same radius</em> on both sides, two
+adjacent players can align rungs at the same ring and a demon transitions from one
+wedge to the next without jumping radius &mdash; player 1 has matching rungs, so
+the snake continues after the crossing.</p>

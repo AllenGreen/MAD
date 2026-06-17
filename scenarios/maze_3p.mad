@@ -1,0 +1,28 @@
+# MAD scenario: random mazes in every sector to stress-test pathing.
+# A "perfect" maze keeps all cells connected, so the shard route stays solvable
+# while forcing demons to wind through corridors. Flyers ignore the walls and
+# fly straight -- a useful contrast.
+name Maze Pathing Test
+
+map players=3 grid_w=44 grid_h=23 radius=22 cell=1
+seed 20260614
+tick_rate 60
+fps 30
+ticks 2600
+
+camera overview name=overview w=760 h=760
+camera sector id=0 name=player0 w=620 h=520
+camera sector id=1 name=player1 w=620 h=520
+camera sector id=2 name=player2 w=620 h=520
+
+# Carve a tall-walled maze in each sector (seed derived from scenario seed).
+at 1 maze sector=0 height=2
+at 1 maze sector=1 height=2
+at 1 maze sector=2 height=2
+
+# Ground demons must solve the mazes; flyers cut straight across.
+at 20   spawn sector=0 type=ground size=1 count=8 dir=cw
+at 220  spawn sector=1 type=ground size=1 count=6 dir=ccw
+at 450  spawn sector=2 type=flyer  size=1 count=5 dir=cw
+at 700  spawn sector=0 type=ground size=1 count=6 dir=cw
+at 1000 spawn sector=1 type=climber size=1 count=5 dir=ccw

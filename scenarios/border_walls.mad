@@ -1,0 +1,29 @@
+# MAD scenario: border-wall building options, with the whole-map flow field.
+#   PERP rung: a tangential wall across a wedge with a gap (alternating gaps =
+#     serpentine zig-zag).
+#   ALONG wall: seals the seam crossing at a ring (radius); pathing reroutes.
+name Border Walls
+
+map players=3 grid_w=44 grid_h=23 radius=22 cell=1
+seed 20260615
+tick_rate 60
+fps 30
+ticks 3000
+
+camera overview name=overview w=820 h=820
+camera sector id=0 name=player0 w=640 h=540
+camera sector id=1 name=player1 w=640 h=540
+
+# Serpentine rungs in player 0 (and matching ones in player 1).
+at 1 rung sector=0 row=4  side=left  gap=4
+at 1 rung sector=0 row=8  side=right gap=4
+at 1 rung sector=0 row=12 side=left  gap=4
+at 1 rung sector=1 row=4  side=left  gap=4
+at 1 rung sector=1 row=8  side=right gap=4
+
+# ALONG: seal the OUTER part of the 0/1 seam (rings 10..22), so demons cross
+# only nearer the nexus -- pathing reroutes there automatically.
+at 1 border sector=0 neighbor=1 row=10 count=13
+
+at 20   spawn sector=0 type=ground size=1 count=8 dir=cw
+at 700  spawn sector=0 type=ground size=1 count=8 dir=cw

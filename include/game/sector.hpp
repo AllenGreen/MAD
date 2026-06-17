@@ -29,6 +29,15 @@ public:
     // Transform: world position -> nearest grid cell (may be out of bounds)
     CellCoord world_to_cell(WorldPos pos) const;
 
+    // The four world-space corners of a cell (polar quad): outer-left, outer-right,
+    // inner-right, inner-left. Two edges are radial (straight), two are arcs.
+    void cell_corners(CellCoord cell, WorldPos out[4]) const;
+
+    // Polar-grid axes: column edge -> angle (from +Y, clockwise); row edge ->
+    // radius (row 0 edge = map_radius/portal, row = height edge = 0/nexus).
+    double angle_at(double col_edge) const;
+    double radius_at(double row_edge) const;
+
     // Is this world position inside this sector's wedge?
     bool contains_world(WorldPos pos) const;
 
@@ -52,21 +61,6 @@ private:
     double map_radius_;
     double cell_size_;
     Grid grid_;
-
-    // Cached transform: cos/sin of rotation
-    double cos_r_, sin_r_;
-
-    // Grid origin in world space (top-left of the grid before rotation)
-    // The grid is laid out so that:
-    //   - Row 0 is at the outer edge (portal), last row toward nexus
-    //   - Col 0 is the left edge, last col is the right edge
-    //   - The grid center-top aligns with the sector center line at the portal distance
-
-    // Local-to-world: local position is grid-relative (col * cell_size, row * cell_size)
-    // where (0,0) is top-left of the grid.
-    // The grid is centered on the sector's center line, with row 0 at map_radius distance.
-    WorldPos local_to_world(double lx, double ly) const;
-    void world_to_local(WorldPos pos, double& lx, double& ly) const;
 };
 
 } // namespace mad::game

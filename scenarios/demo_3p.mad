@@ -1,0 +1,30 @@
+# MAD scenario: 3-player shard run with walls funneling demons.
+# Grammar: see documentation/ai_harness.md
+name 3-Player Shard Run
+
+# grid_w >= 2*sin(pi/3)*radius (~1.73R) to span the boundary line;
+# grid_h ~= radius so the grid reaches the nexus.
+map players=3 grid_w=44 grid_h=23 radius=22 cell=1
+seed 20260614
+tick_rate 60
+fps 30
+ticks 1500
+
+# Cameras: a top-down overview plus each player's own perspective.
+camera overview name=overview w=760 h=760
+camera sector id=0 name=player0 w=620 h=520
+camera sector id=1 name=player1 w=620 h=520
+camera sector id=2 name=player2 w=620 h=520
+
+# A defensive wall line + tower in player 0's sector, off the central corridor.
+at 1 wall sector=0 col=14 row=9 edge=horizontal height=2
+at 1 wall sector=0 col=15 row=9 edge=horizontal height=2
+at 1 wall sector=0 col=16 row=9 edge=horizontal height=2
+at 1 tower sector=0 col=28 row=8 size=2
+
+# Waves alternate direction. Ground, a climber probe, flyers, then a heavy wave.
+at 30   spawn sector=0 type=ground  size=1 count=10 dir=cw
+at 150  spawn sector=1 type=ground  size=1 count=8  dir=ccw
+at 300  spawn sector=2 type=climber size=1 count=6  dir=cw
+at 480  spawn sector=0 type=flyer   size=1 count=6  dir=cw
+at 650  spawn sector=1 type=ground  size=2 count=4  dir=ccw

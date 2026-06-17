@@ -43,7 +43,13 @@ find_package(Threads REQUIRED)
 add_library(mad_engine STATIC
     src/core/engine.cpp
     src/core/log.cpp
+    src/core/world.cpp
+    src/core/scenario.cpp
+    src/core/recorder.cpp
+    src/core/serialize.cpp
+    src/core/coords_dump.cpp
     src/rendering/window.cpp
+    src/rendering/renderer.cpp
     src/network/socket.cpp
     src/game/grid.cpp
     src/game/wall.cpp
@@ -51,6 +57,8 @@ add_library(mad_engine STATIC
     src/game/game_map.cpp
     src/game/pathfinding.cpp
     src/game/flow_field.cpp
+    src/game/flow_field_manager.cpp
+    src/game/global_flow_field.cpp
 )
 
 target_include_directories(mad_engine PUBLIC
@@ -79,6 +87,8 @@ if(MAD_BUILD_TESTS)
         tests/test_wall.cpp
         tests/test_sector.cpp
         tests/test_pathfinding.cpp
+        tests/test_camera.cpp
+        tests/test_world.cpp
     )
     target_include_directories(mad_tests PRIVATE
         ${CMAKE_SOURCE_DIR}/include

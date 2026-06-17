@@ -1,0 +1,12 @@
+<h3>Spiral maze across all players &mdash; a single continuous spiral</h3>
+<p>One <strong>Archimedean spiral wall</strong> winds from the outer edge all the
+way to the Nexus, crossing every player's section. It leaves a single smooth
+spiral corridor, so a unit spirals continuously inward &mdash; getting steadily
+closer to the center the whole way (no concentric rings, no pockets).</p>
+<p>The wall is defined by a field <code>f(r,&#952;) = (R0&minus;r)/pitch +
+dir&#183;&#952;/2&#960;</code> whose integer contours are the spiral windings; we
+wall every grid edge where <code>floor(f)</code> changes &mdash; cardinal
+<em>and</em> diagonal, so the wall is solid &mdash; and apply the same test across
+the seams so the wall <strong>joins across the borders</strong> between players'
+rotated grids. See the <em>spiral-trace</em> tab for a single unit tracked and
+plotted (radius vs time) to confirm the motion is one smooth, continuous spiral.</p>

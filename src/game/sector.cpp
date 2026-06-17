@@ -14,80 +14,64 @@ Sector::Sector(int player_id, int grid_width, int grid_height,
     , map_radius_(map_radius)
     , cell_size_(cell_size)
     , grid_(grid_width, grid_height)
-    , cos_r_(std::cos(rotation_rad))
-    , sin_r_(std::sin(rotation_rad))
 {
+    // POLAR grid: each sector is its own wedge of a shared polar coordinate
+    // system. Columns map to angle across the full wedge and rows to radius, so a
+    // sector's right edge lines up exactly with its neighbour's left edge -- the
+    // grid is continuous (a curved line) across every border. Every cell lies
+    // inside the wedge by construction, so nothing needs masking.
     mask_out_of_wedge_cells();
 }
 
-WorldPos Sector::local_to_world(double lx, double ly) const {
-    // Local coordinate system:
-    //   lx: horizontal, 0 = left edge of grid, increases right
-    //   ly: vertical, 0 = top (portal edge), increases toward nexus (center)
-    //
-    // In the "unrotated" sector (player 0, facing up from the top):
-    //   The sector's center line goes from (0, map_radius) down to (0, 0) [nexus].
-    //   Grid top-left in unrotated space:
-    //     x = -grid_width * cell_size / 2  (centered horizontally)
-    //     y = map_radius                    (portal at the outer edge)
-    //   Grid y decreases toward nexus (ly increases -> world y decreases).
-
-    double grid_w = grid_.width() * cell_size_;
-
-    // Unrotated position
-    double ux = lx - grid_w / 2.0;
-    double uy = map_radius_ - ly; // row 0 at map_radius, last row toward 0
-
-    // Rotate by sector angle (clockwise rotation around origin/nexus)
-    return {
-        ux * cos_r_ + uy * sin_r_,
-       -ux * sin_r_ + uy * cos_r_
-    };
+// Column edge in [0, width] -> angle from +Y (clockwise). col 0 = the sector's
+// left (CCW) border, col = width = the right (CW) border.
+double Sector::angle_at(double col_edge) const {
+    return rotation_ - half_angle_
+         + (col_edge / grid_.width()) * (2.0 * half_angle_);
 }
 
-void Sector::world_to_local(WorldPos pos, double& lx, double& ly) const {
-    // Inverse rotation
-    double ux = pos.x * cos_r_ - pos.y * sin_r_;
-    double uy = pos.x * sin_r_ + pos.y * cos_r_;
-
-    double grid_w = grid_.width() * cell_size_;
-    lx = ux + grid_w / 2.0;
-    ly = map_radius_ - uy;
+// Row edge in [0, height] -> radius from the nexus. row 0 = portal (map_radius),
+// row = height = the nexus (radius 0).
+double Sector::radius_at(double row_edge) const {
+    return map_radius_ * (1.0 - row_edge / grid_.height());
 }
 
 WorldPos Sector::cell_to_world(CellCoord cell) const {
-    double lx = (cell.col + 0.5) * cell_size_;
-    double ly = (cell.row + 0.5) * cell_size_;
-    return local_to_world(lx, ly);
+    const double a = angle_at(cell.col + 0.5);
+    const double r = radius_at(cell.row + 0.5);
+    return {r * std::sin(a), r * std::cos(a)};
 }
 
 CellCoord Sector::world_to_cell(WorldPos pos) const {
-    double lx, ly;
-    world_to_local(pos, lx, ly);
-    return {
-        static_cast<int>(std::floor(lx / cell_size_)),
-        static_cast<int>(std::floor(ly / cell_size_))
-    };
+    const double r = std::sqrt(pos.x * pos.x + pos.y * pos.y);
+    double da = std::atan2(pos.x, pos.y) - rotation_;
+    while (da > M_PI) da -= 2.0 * M_PI;
+    while (da < -M_PI) da += 2.0 * M_PI;
+    const int col = static_cast<int>(
+        std::floor((da + half_angle_) / (2.0 * half_angle_) * grid_.width()));
+    const int row = static_cast<int>(
+        std::floor((1.0 - r / map_radius_) * grid_.height()));
+    return {col, row};
+}
+
+void Sector::cell_corners(CellCoord cell, WorldPos out[4]) const {
+    const double a0 = angle_at(cell.col), a1 = angle_at(cell.col + 1);
+    const double r0 = radius_at(cell.row), r1 = radius_at(cell.row + 1); // r0 outer
+    out[0] = {r0 * std::sin(a0), r0 * std::cos(a0)}; // outer-left
+    out[1] = {r0 * std::sin(a1), r0 * std::cos(a1)}; // outer-right
+    out[2] = {r1 * std::sin(a1), r1 * std::cos(a1)}; // inner-right
+    out[3] = {r1 * std::sin(a0), r1 * std::cos(a0)}; // inner-left
 }
 
 bool Sector::contains_world(WorldPos pos) const {
-    // A point is in this sector if its angle from +Y axis (clockwise)
-    // is within [rotation_ - half_angle_, rotation_ + half_angle_].
-    // Also must be within map_radius distance from origin.
+    const double dist = std::sqrt(pos.x * pos.x + pos.y * pos.y);
+    if (dist > map_radius_ * 1.01) return false;
+    if (dist < 1e-6) return true; // at the nexus, belongs to all sectors
 
-    double dist = std::sqrt(pos.x * pos.x + pos.y * pos.y);
-    if (dist > map_radius_ * 1.01) return false; // small tolerance
-    if (dist < 1e-6) return true; // at nexus center, belongs to all sectors
-
-    // Angle from +Y axis, clockwise (matching our rotation convention)
-    double angle = std::atan2(pos.x, pos.y);
-
-    // Normalize angle difference to [-pi, pi]
-    double diff = angle - rotation_;
+    double diff = std::atan2(pos.x, pos.y) - rotation_;
     while (diff > M_PI) diff -= 2.0 * M_PI;
     while (diff < -M_PI) diff += 2.0 * M_PI;
-
-    return std::abs(diff) <= half_angle_ + 1e-6; // small tolerance
+    return std::abs(diff) <= half_angle_ + 1e-6;
 }
 
 std::vector<CellCoord> Sector::portal_cells() const {
@@ -120,15 +104,14 @@ std::vector<CellCoord> Sector::nexus_cells() const {
 }
 
 void Sector::mask_out_of_wedge_cells() {
-    for (int r = 0; r < grid_.height(); ++r) {
+    // Polar grid: every cell already lies inside the wedge, so nothing is masked.
+    // (Kept for API compatibility / future irregular maps.)
+    for (int r = 0; r < grid_.height(); ++r)
         for (int c = 0; c < grid_.width(); ++c) {
             CellCoord cell{c, r};
-            WorldPos wp = cell_to_world(cell);
-            if (!contains_world(wp)) {
+            if (!contains_world(cell_to_world(cell)))
                 grid_.set_cell_state(cell, CellState::Blocked);
-            }
         }
-    }
 }
 
 } // namespace mad::game

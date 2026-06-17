@@ -23,6 +23,7 @@ void FlowField::generate(CellCoord goal, MoveType move_type, int unit_size) {
 
 void FlowField::generate(std::span<const CellCoord> goals, MoveType move_type, int unit_size) {
     unit_size_ = unit_size;
+    move_type_ = move_type;
     std::fill(cost_field_.begin(), cost_field_.end(), UNREACHABLE);
     std::fill(direction_field_.begin(), direction_field_.end(), CellCoord{-1, -1});
 
@@ -99,9 +100,17 @@ void FlowField::compute_directions() {
             double best_cost = cost_field_[ci];
             CellCoord best_dir = {c, r}; // default: stay
 
+            const CellCoord here{c, r};
             for (auto& [dc, dr] : dirs) {
                 CellCoord neighbor{c + dc, r + dr};
                 if (!grid_.in_bounds(neighbor)) continue;
+                // The direction must be a move the unit can actually make: a cell
+                // across a wall may be cheaper, but steering into it would clip
+                // through the wall. Use the same passability check as generate().
+                const bool passable = move_type_ == MoveType::Flyer
+                    ? grid_.is_footprint_walkable(neighbor, unit_size_)
+                    : grid_.can_move(here, neighbor, unit_size_);
+                if (!passable) continue;
                 int ni = index(neighbor);
                 if (cost_field_[ni] < best_cost) {
                     best_cost = cost_field_[ni];

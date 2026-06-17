@@ -52,49 +52,25 @@ CellCoord GameMap::transform_cell(CellCoord cell, int from_sector, int to_sector
 }
 
 std::vector<BoundaryPair> GameMap::boundary_cells(int sector_a, int sector_b) const {
-    // Walk along the boundary line between two adjacent sectors in world space.
-    // The boundary is a line from the nexus (origin) outward along the shared angle.
-    //
-    // For each point along this line, find the nearest cell in each sector
-    // and pair them if both are in-bounds and walkable.
-
+    // On the polar grid the seam between adjacent sectors is exactly a grid line:
+    // sector a's edge column meets sector b's edge column, row for row (so each
+    // pair is at the same radius). a's CW neighbour shares a's last column with the
+    // neighbour's column 0; the CCW neighbour shares column 0 with column W-1.
     std::vector<BoundaryPair> pairs;
-
-    // The boundary angle is halfway between the two sectors' rotations.
-    double angle_a = sectors_[sector_a].rotation();
-    double angle_b = sectors_[sector_b].rotation();
-
-    // Handle wrap-around: find the angle between them
-    double diff = angle_b - angle_a;
-    while (diff > M_PI) diff -= 2.0 * M_PI;
-    while (diff < -M_PI) diff += 2.0 * M_PI;
-    double boundary_angle = angle_a + diff / 2.0;
-
-    double cos_b = std::cos(boundary_angle);
-    double sin_b = std::sin(boundary_angle);
-
-    // Walk from nexus outward in steps of cell_size
-    int steps = static_cast<int>(config_.map_radius / config_.cell_size) + 1;
-    for (int i = 1; i <= steps; ++i) {
-        double dist = i * config_.cell_size;
-        // Point along boundary line (angle from +Y, clockwise)
-        WorldPos point{dist * sin_b, dist * cos_b};
-
-        CellCoord ca = sectors_[sector_a].world_to_cell(point);
-        CellCoord cb = sectors_[sector_b].world_to_cell(point);
-
-        if (sectors_[sector_a].grid().in_bounds(ca) &&
-            sectors_[sector_b].grid().in_bounds(cb) &&
-            sectors_[sector_a].grid().is_walkable(ca) &&
-            sectors_[sector_b].grid().is_walkable(cb)) {
-            // Avoid duplicate pairs
-            if (pairs.empty() ||
-                !(pairs.back().cell_a == ca && pairs.back().cell_b == cb)) {
-                pairs.push_back({ca, cb});
-            }
-        }
+    const int N = num_sectors();
+    if (N < 2) return pairs;
+    const bool cw = (sector_a + 1) % N == sector_b;
+    const bool ccw = (sector_a - 1 + N) % N == sector_b;
+    if (!cw && !ccw) return pairs; // not adjacent
+    const int W = config_.grid_width, H = config_.grid_height;
+    const int col_a = cw ? W - 1 : 0;
+    const int col_b = cw ? 0 : W - 1;
+    for (int row = 0; row < H; ++row) {
+        const CellCoord ca{col_a, row}, cb{col_b, row};
+        if (sectors_[sector_a].grid().is_walkable(ca) &&
+            sectors_[sector_b].grid().is_walkable(cb))
+            pairs.push_back({ca, cb});
     }
-
     return pairs;
 }
 

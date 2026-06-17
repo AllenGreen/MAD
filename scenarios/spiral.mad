@@ -1,0 +1,16 @@
+# MAD scenario: a single continuous Archimedean spiral wall across all players.
+# One smooth spiral corridor winds from the outer edge to the Nexus.
+name Spiral Maze
+
+map players=3 grid_w=44 grid_h=23 radius=22 cell=1
+seed 20260615
+tick_rate 60
+fps 30
+ticks 6000
+
+camera overview name=overview w=860 h=860
+
+at 1 spiral pitch=4 dir=cw
+
+at 20   spawn sector=0 type=ground size=1 count=4 dir=cw goal=nexus
+at 1500 spawn sector=1 type=ground size=1 count=4 dir=cw goal=nexus

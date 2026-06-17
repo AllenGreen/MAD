@@ -161,6 +161,49 @@ TEST(grid_corner_cutting_wall_blocks_diagonal) {
     return true;
 }
 
+TEST(grid_diagonal_can_move_symmetric) {
+    // can_move(A,B) must equal can_move(B,A) for every adjacency. An asymmetric
+    // diagonal rule lets the flow field flood one way but not steer back, which
+    // strands units at wall corners. Regression for that.
+    Grid grid(7, 7);
+    grid.add_wall({{3, 3}, EdgeType::Horizontal});
+    grid.add_wall({{2, 4}, EdgeType::Vertical});
+    grid.add_wall({{4, 2}, EdgeType::DiagNE});
+    grid.add_wall({{5, 5}, EdgeType::Horizontal});
+    for (int r = 1; r < 6; ++r)
+        for (int c = 1; c < 6; ++c)
+            for (int dc = -1; dc <= 1; ++dc)
+                for (int dr = -1; dr <= 1; ++dr) {
+                    if (dc == 0 && dr == 0) continue;
+                    CellCoord a{c, r}, b{c + dc, r + dr};
+                    ASSERT_EQ(grid.can_move(a, b), grid.can_move(b, a));
+                }
+    return true;
+}
+
+TEST(grid_single_wall_blocks_diagonal_squeeze) {
+    // A single wall is a solid barrier: a unit must not slip diagonally past it
+    // (strict no-corner-cutting). Regression for demons clipping through maze walls.
+    Grid grid(5, 5);
+    grid.add_wall({{2, 2}, EdgeType::Horizontal}); // north edge of (2,2)
+
+    ASSERT_TRUE(!grid.can_move({2, 2}, {3, 1})); // NE would clip past the north wall
+    ASSERT_TRUE(!grid.can_move({2, 2}, {1, 1})); // NW would clip past the north wall
+    ASSERT_TRUE(!grid.can_move({2, 1}, {3, 2})); // SE from above clips the same edge
+    ASSERT_TRUE(!grid.can_move({2, 1}, {1, 2})); // SW from above clips the same edge
+    // Diagonals that don't touch the wall stay open.
+    ASSERT_TRUE(grid.can_move({2, 2}, {3, 3}));  // SE
+    ASSERT_TRUE(grid.can_move({2, 2}, {1, 3}));  // SW
+
+    // Same for a vertical wall (left edge of (2,2)).
+    Grid g2(5, 5);
+    g2.add_wall({{2, 2}, EdgeType::Vertical});
+    ASSERT_TRUE(!g2.can_move({2, 2}, {1, 1})); // NW clips past the west wall
+    ASSERT_TRUE(!g2.can_move({2, 2}, {1, 3})); // SW clips past the west wall
+    ASSERT_TRUE(g2.can_move({2, 2}, {3, 1}));  // NE open
+    return true;
+}
+
 TEST(grid_wall_add_remove) {
     Grid grid(5, 5);
     EdgeCoord edge = {{2, 2}, EdgeType::Horizontal};

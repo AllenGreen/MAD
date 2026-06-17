@@ -37,6 +37,7 @@ private:
     std::vector<CellCoord> direction_field_;
     bool valid_ = false;
     int unit_size_ = 1;
+    MoveType move_type_ = MoveType::Ground;
 
     int index(CellCoord c) const { return c.row * width_ + c.col; }
     void compute_directions();

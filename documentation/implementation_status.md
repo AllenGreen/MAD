@@ -2,9 +2,9 @@
 
 This document is the authoritative snapshot of what is built right now, what is only designed, and where to start next.
 
-**Last updated**: 2026-06-13 (after adding Summoning Crystal positions)
+**Last updated**: 2026-06-14 (after building the AI development harness + first gameplay loop)
 
-For *what the game is*, read `game_design.md`. For *system shape*, read `architecture.md`. This file is the bridge between design and code.
+For *what the game is*, read `game_design.md`. For *system shape*, read `architecture.md`. For *how to build/run/record the game as an AI agent*, read `ai_harness.md`. This file is the bridge between design and code.
 
 ---
 
@@ -17,6 +17,9 @@ Canonical entry points — never invoke cmake/ctest/ninja directly:
 | `./build.sh [Debug\|Release\|clean]` | Configure + build. Debug is default and enables `-fsanitize=address,undefined`. Auto-prefers Ninja. |
 | `./test.sh [regex]` | Build + run `ctest`. Optional regex passes through as `-R`. |
 | `./run.sh [args...]` | Build + launch the `mad` binary. Args forwarded. |
+| `./record.sh <scenario.mad> [flags]` | **AI harness**: build + headless record + encode video + publish to `/Content`. See `ai_harness.md`. |
+
+The `mad` binary also takes `--record <scenario.mad> --out <dir>` to run headlessly and dump frames (no display, deterministic). `tools/capture.py` turns frames into video and publishes them.
 
 Build artifacts live in `build/`. `.gitignore` excludes them.
 
@@ -31,22 +34,27 @@ Build artifacts live in `build/`. `.gitignore` excludes them.
 ```
 MAD/
 ├── CMakeLists.txt
-├── build.sh, test.sh, run.sh
+├── build.sh, test.sh, run.sh, record.sh
 ├── documentation/
 │   ├── game_design.md            # Lore, mechanics, what the game IS
 │   ├── architecture.md           # Modules, threads, tech stack
+│   ├── ai_harness.md             # How to build/run/record as an AI agent
 │   └── implementation_status.md  # THIS FILE
 ├── include/
-│   ├── core/    (engine, log, test framework)
-│   ├── game/    (grid_types, grid, wall, sector, game_map, pathfinding, flow_field)
+│   ├── core/    (engine, log, test, world, scenario, recorder, serialize)
+│   ├── game/    (grid_types, grid, wall, sector, game_map, pathfinding,
+│   │             flow_field, flow_field_manager)
 │   ├── network/ (socket)
-│   └── rendering/ (window)
+│   └── rendering/ (window, camera, renderer)
 ├── src/         (mirrors include/)
-├── tests/       (test_grid, test_wall, test_sector, test_pathfinding, test_main)
+├── scenarios/   (.mad scenario files — e.g. demo_3p.mad)
+├── tools/       (capture.py — frames -> video -> /Content)
+├── tests/       (grid, wall, sector, pathfinding, camera, world, main)
 └── build/       (gitignored)
 ```
 
-There are no asset, shader, or third-party-source directories yet.
+There are no asset, shader, or third-party-source directories yet. Captured frames
+go to `/Data/mad_capture/` (scratch); published reports go to `/Content/`.
 
 ## 3. What's Implemented vs. Designed
 
@@ -121,30 +129,123 @@ There are no asset, shader, or third-party-source directories yet.
 - 8-directional with √2 diagonal cost. Movement passability uses the same Grid checks as A* (size-aware).
 - `valid_` flag with `invalidate()` for future regeneration hooks. **No manager yet — nobody owns or refreshes these fields**.
 
-#### 3.6 Tests
-- `test_main.cpp` invokes `mad::test::run_all()`.
-- **68 tests passing, 0 failing** as of this writing.
-- Coverage: grid movement / footprints / corner-cutting; wall edge normalization & blocking; sector creation / rotation / world transforms / wedge masking / boundary cells / 5-player parametrics; A* one-sector and cross-sector / string-pull / size; flow field generation and size-difference; **crystal mid-wedge cell, walkability across N=3..6, distinct world positions per sector, distance between portal and nexus**.
+#### 3.6 Gameplay loop + AI harness (NEW, 2026-06-14)
+This is the first end-to-end playable+observable slice. See `ai_harness.md`.
+- `core::World` — deterministic, render-free simulation: owns the `GameMap`, a
+  `FlowFieldManager`, demons, and wave spawns. Fixed timestep. Inputs (`spawn_wave`,
+  `place_wall`, `place_tower`) mimic human actions.
+- `game::GlobalFlowField` (2026-06-15) — **whole-map** Dijkstra flood that crosses seams
+  (the design's "Option B"). Demons follow ONE field to their goal across all sectors, so
+  routing is globally optimal (winds around the ring / reroutes around sealed seams). The
+  steering direction is recorded during relaxation, so it's always a legal move (no
+  wall-ignoring direction pass). Seam crossings are sampled densely by RADIUS and nudged
+  into each sector, so units cross at (nearly) any radius — this is what makes **smooth,
+  teleport-free transitions** and tangential travel around a ring possible. `FlowFieldManager`
+  caches one global field per goal (each crystal, the Nexus) per `(MoveType, size)`.
+- `game::FlowFieldManager` — also still builds the older per-sector fields; the whole-map
+  fields above are what demon steering uses. **Nexus goal = walkable cells nearest the world
+  origin** (the literal last grid row is masked away where the wedge pinches).
+- **Smooth seam crossing** — a demon steers continuously toward the next cell even when it's
+  across a seam, and commits `d.sector` on the crossing step (no teleport, no boundary
+  oscillation). `World::step_demon`.
+- `Demon` — walks the full shard route: spawn portal → its own crystal → each other
+  crystal in rotational order (CW/CCW) → Nexus. Cross-sector movement uses a
+  boundary field to reach the seam, then a **handoff** (`World::try_cross`) teleports
+  it to the paired cell in the neighbor grid. Flyers ignore walls, climbers ignore
+  short walls (via the existing move-type flow-field semantics).
+- `rendering::Camera` — world↔screen with per-sector rotation ("every player at the
+  top"). `rendering::Renderer` — draws sectors (rotated cell quads), walls, crystals,
+  Nexus, and demons to any `SDL_Renderer` (window or offscreen) via `SDL_RenderGeometry`.
+- `core::Scenario` + parser — dependency-free `.mad` text format (map, cameras, timed
+  spawn/wall/tower/maze events) so an agent authors runs declaratively.
+- `World::generate_maze` — recursive-backtracker "perfect" maze over a sector's walkable
+  cells (tall walls on uncarved edges). Spanning-tree connectivity keeps crystals/nexus/
+  boundaries reachable; deterministic per seed. Exposed as the `maze` scenario command
+  (`scenarios/maze_3p.mad`). A strong pathing stress test — see the published capture.
+- **Border walls** — two build options for shaping paths at the seam where two players'
+  coordinate systems meet (`scenarios/border_walls.mad`, published demo with trails):
+  - **ALONG** (`World::add_boundary_wall`, `core::BoundaryWall`) — a wall along the seam that
+    seals *crossing* at a ring. `FlowFieldManager` drops sealed crossings from boundary-field
+    goals, so demons reroute to an open one. `border` scenario command.
+  - **PERP rung** (`World::add_rung`) — a tangential wall across a wedge at a grid row, with a
+    gap at one border. Alternating gap sides build a **serpentine**: demons zig-zag border to
+    border, dropping a ring only at a gap. Rungs are plain grid walls, so normal flow-field
+    pathing produces the snake. `rung` scenario command.
+  - **Perfect spiral maze** (`World::add_perfect_spiral`) — a single continuous Archimedean
+    spiral wall across all sectors, from a scalar field `f(r,θ) = (R0−r)/pitch + dir·θ/2π`
+    whose integer contours are the windings. Walls every grid edge where `floor(f)` changes
+    (cardinal AND diagonal, so it's solid) and applies the same test across the seams to join
+    the wall over the borders. One smooth spiral corridor winds from the edge to the Nexus.
+    `spiral pitch=P dir=cw|ccw` + `goal=nexus`. Tests `perfect_spiral_connects_and_is_long`,
+    `perfect_spiral_wall_blocks_radial`. Single-unit trace + radius/path plots published at
+    `Active/spiral-trace` (`tools/spiral_trace.py`, `MAD_TRAJ` trajectory dump). Walls only the
+    CARDINAL crossing edges (no diagonal "teeth"/comb — the strict diagonal rule blocks slips);
+    on the polar grid the wall follows row-arcs/col-radials, so it's a smooth curve.
+  - **Bridged borders (seam-solid walls)** — a wall that reaches a seam must *join across the
+    border*, or units slip from outside a ring (one sector) to inside it (the neighbour) via the
+    seam crossing. Each spiral ring now seals the seam crossings at its radius (via
+    `add_boundary_wall`), so the ring is continuous across all three seams; the open bands
+    *between* rings keep their crossings for lapping. Test `spiral_bridges_seams`. The general
+    primitive is the ALONG wall — sealing a seam crossing at a radius "joins" the coordinate
+    systems there.
+  - Crossings join cells at the same radius on both sides, so two adjacent players can align
+    rungs at the same ring and a demon transitions between wedges without changing radius
+    (test `boundary_crossing_preserves_radius`).
+- **Demon path trails** — `MAD_TRAILS=1` (or `record.sh --trails`) draws per-demon position
+  history; invaluable for seeing what pathing actually does. `rendering::Trails`.
+- **Strict no-corner-cutting** (2026-06-15 fix): a size-1 diagonal move is blocked if the
+  diagonal edge OR *either* adjacent cardinal edge is walled (previously required *both*),
+  so walls are solid barriers and units can't slip diagonally past a single maze wall. The
+  size>1 path was already strict; this aligned size-1 with it.
+- `core::Recorder` — headless SDL **offscreen** software renderer → one render-target
+  texture per camera → `RenderReadPixels` → PPM frames + `manifest.txt`. No display.
+- `core::serialize_world` / `deserialize_world` — snapshot/restore dynamic sim state
+  (tick, RNG, demon roster). Determinism + serialization primitive for Path C.
+- `tools/capture.py` + `record.sh` — frames → per-camera MP4 + 2×2 composite grid →
+  HTML report published to `/Content/<timestamp>.1/` and featured under `Active/`.
 
-### Stubbed (compiles, doesn't do anything yet)
-- `core::Engine::run` — main loop turns over but the update/render bodies are empty.
-- `rendering::Window` — wraps SDL2 window + renderer; nothing draws.
-- `network::UDPSocket` — raw blocking-mode UDP send/recv; **no reliability layer, no game-state serialization, no peer discovery**.
+#### 3.7 Tests
+- `test_main.cpp` invokes `mad::test::run_all()`.
+- **78 tests passing, 0 failing** as of this writing (was 68; +4 camera, +6 world).
+- Existing coverage: grid movement / footprints / corner-cutting; wall edge
+  normalization & blocking; sector creation / rotation / world transforms / wedge
+  masking / boundary cells; A* one-sector and cross-sector / string-pull / size; flow
+  field generation; crystal mid-wedge cell + walkability across N=3..6.
+- New coverage: camera center/up-axis/rotation/screen↔world round-trip; flow-field
+  manager caching/invalidation; demons move and **complete the full shard route to the
+  Nexus**; scenario parsing; serialize round-trip; **simulation determinism** (same
+  seed+inputs ⇒ identical demon positions).
+
+### Partially done / stubbed
+- `core::Engine::run` — the **windowed** loop still has empty update/render bodies. The
+  renderer exists and is fully exercised by the headless recorder; wiring it into the
+  windowed `Engine` is a small follow-up (deferred because the container has no display).
+- `rendering::Window` — wraps SDL2 window + renderer; the windowed path doesn't draw yet
+  (the offscreen recorder path does).
+- `network::UDPSocket` — raw blocking-mode UDP send/recv; **no reliability layer, no peer
+  discovery**. State **serialization now exists** (`core::serialize_world`), so the netcode
+  has a determinism + snapshot foundation to build on.
+- **Flow-field manager** — DONE for steering, but does not yet expose "cost-to-goal at a
+  boundary" for choosing the cheapest cross-sector route; the handoff currently uses the
+  nearest boundary cell, not the cheapest.
+- **Tower system** — placement exists (`World::place_tower` stamps a footprint and
+  invalidates fields). No upgrade-in-place, no 3→1 merge, no stats/targeting.
+- **Crystal** — has a position + is rendered + is a flow-field goal, but is still not a
+  `CellState` occupant with HP/shard count/footprint reservation.
 
 ### Designed but not implemented at all
-*Everything below has design notes in `game_design.md` and architecture lines in `architecture.md`, but zero code.*
+*Everything below has design notes in `game_design.md`/`architecture.md` but zero code.*
 
-- Crystal as a **structure** — currently only a position. No `CellState::Crystal`, no footprint reservation, no shard count, no HP.
-- **Flow field manager** — owning N+1 fields per `(unit_size, MoveType)` combo (one per crystal + one for nexus), regenerating on wall/tower placement, exposing "cost from cell X to crystal Y" for boundary transition costs.
-- **Cross-sector flow-field handoff** with cost-to-goal at boundaries (the "Option B" design choice — per-sector fields with cost passed across boundary cells).
-- **Demon unit** — `shards_collected`, `wave_direction (CW/CCW)`, current goal, position interpolation, size, MoveType, HP.
-- **Wave manager** — spawn schedule, alternation of CW/CCW per wave, portal-edge selection (which portals spawn this wave).
-- **Demon enrage** — none of the 4 candidate strategies have been implemented (see `game_design.md` §Demon Enrage). Also no path-blockage detection, no obstruction identification, no anti-ping-pong (travel-budget or backtrack-threshold).
-- **Tower system** — placement, upgrade-in-place, merge of 3×1x1 → larger.
+- **Demon enrage** — none of the 4 candidate strategies. Demons that can't reach a goal
+  currently just hold position (the hook is marked in `World::step_demon`). No path-blockage
+  attribution, no anti-ping-pong (travel-budget / backtrack-threshold).
+- **Wave manager** — spawns are scripted via scenario events; there's no in-game schedule,
+  automatic CW/CCW alternation, or portal-edge selection logic.
+- **Demon combat/HP** — demons carry `hp` but nothing damages them; towers don't fire.
 - **Magic schools, hybrids, specialization progression** — pure design.
 - **Projectile system, damage model**.
-- **Multiplayer (lobby, sync, peer host)**.
-- **Renderer** — no grid drawing, no per-sector rotation, no sprite system, no UI.
+- **Multiplayer (lobby, sync, peer host)** — serialization exists; transport/reliability does not.
+- **Windowed renderer + UI** — the draw code exists; the interactive window/camera/UI wiring does not.
 - **Demon tech progression** (era-based wave difficulty).
 - **Threading model from architecture.md** — currently single-threaded.
 
@@ -158,15 +259,21 @@ These are easy to get wrong; double-check before changing geometry code.
 - `+Y` axis points "up" (toward player 0's portal). `+X` axis points right.
 - Angles are measured *from `+Y`, clockwise*. This matches how sectors are rotated and how `Sector::contains_world` uses `atan2(pos.x, pos.y)` rather than the more typical `atan2(y, x)`.
 
-### Sector local space
-- A sector has a `grid_width × grid_height` integer grid.
-- Local `(lx, ly)`: lx grows right, ly grows *inward* (toward nexus). So `ly = 0` is the portal edge; `ly = grid_height * cell_size` is at the nexus side.
-- `cell_to_world(cell)` returns the center of the cell (`+0.5` in both axes).
-- Cells whose center falls outside the wedge polygon are marked `CellState::Blocked` at construction.
-
-### Sector layout in the polygon
-- Polygon is N-sided. Sector `i` has rotation `2π·i/N` (CW from `+Y`). `half_angle = π/N` (each sector covers `2π/N` total).
-- The grid is **centered on the sector's center line**, with row 0 sitting at distance `map_radius` from origin. So the player's portal edge runs along an arc of length `~2·map_radius·sin(π/N)`. For wide grids and small N this means much of the grid hangs outside the wedge and gets masked — see `sector_wedge_masking` test for the sizing math.
+### Sector grid = a POLAR wedge (changed 2026-06-17)
+Each sector is a wedge of one shared **polar** grid (was a rotated square grid). This makes the
+grid **continuous across borders** (a curved line, no kink) and makes rings/spirals render as
+smooth curves. `Sector::cell_to_world`:
+- **column → angle**: `α = (2π·i/N) − half_angle + (col+0.5)/W · 2·half_angle` (from `+Y`, CW).
+  Column 0 = the sector's CCW (left) border, column `W` edge = the CW (right) border.
+- **row → radius**: `r = map_radius · (1 − (row+0.5)/H)`. Row 0 = portal (outer, `r≈map_radius`),
+  last row = the Nexus (`r≈0`).
+- `world = (r·sinα, r·cosα)`. `world_to_cell` reads `r=hypot`, `α=atan2(x,y)` and buckets.
+- `cell_corners(cell)` → 4 polar corners (two radial edges, two arc edges). The renderer and
+  `mad --coords` use it.
+- **No masking**: columns span exactly the wedge, so every cell is inside it. `half_angle = π/N`.
+- Adjacent sectors share a border that is exactly a column boundary: `(i, W−1, row)` abuts
+  `(i+1, 0, row)` at the **same radius**. `GameMap::boundary_cells` pairs these directly.
+- Tradeoff: cells shrink toward the Nexus (narrow near the centre).
 
 ### Multi-size footprint
 - `CellCoord` for a sized unit refers to the **top-left** of its footprint. A size=2 unit at `(c,r)` occupies `{(c,r), (c+1,r), (c,r+1), (c+1,r+1)}`.
@@ -186,7 +293,8 @@ These are written down so the next agent doesn't waste cycles re-discovering the
 
 - **Wedge masking can eat your grid.** For high N (e.g. 6 players → 30° half-angle), narrow wedges mean cells far from the center line get masked Blocked. Tests that need cells near the edge of the grid must use a wider grid OR a smaller N. See `sector_wedge_masking` and `sector_boundary_cells_adjacent` for the sizing pattern.
 - **Boundary line can fall outside narrow grids.** Boundary at distance *d* along an angle has local |x| ≈ `d·sin(half_angle)`. The grid half-width (`width·cell_size/2`) must exceed the maximum boundary |x| to find pairs. With 4 players, boundary angle is 45°, so you need `width > √2·map_radius` for full coverage.
-- **Diagonal moves require diagonal edges to block fully.** Horizontal/vertical walls alone don't block diagonals; you need a `DiagNE` or `DiagNW`, *or* the L-shaped pair that triggers corner-cutting. `pathfinding_wall_edge_blocks` had to add the diagonal walls explicitly.
+- **Diagonal moves use a strict, SYMMETRIC solid-corner rule (2026-06-15).** A size-1 diagonal is blocked by its diagonal edge OR by *any* of the four cardinal edges meeting at the corner vertex it crosses. This makes walls solid (no slipping past a single wall) and keeps `can_move(A,B) == can_move(B,A)` — essential because an asymmetric rule lets the flow-field cost flood one way but not steer back, stranding units at wall corners. Tests: `grid_diagonal_can_move_symmetric`, `grid_single_wall_blocks_diagonal_squeeze`. (The size>1 diagonal path is not yet symmetric — revisit for 2x2/3x3 units.)
+- **Flow-field direction must re-check passability (2026-06-15 fix).** `FlowField::compute_directions` originally chose the lowest-cost neighbor without a wall check, so the direction field demons steer along pointed *through* walls even though the cost field routed around them — the main "units ignore walls" bug. It now re-runs the same `can_move`/footprint check as generation. Test: `flow_field_direction_never_crosses_wall_edge`.
 - **Wall edges normalize.** Don't compare raw EdgeCoords; go through `WallSet::has` (which normalizes internally) or call `WallSet::normalize` yourself.
 - **`Sector::cell_to_world` rotates around origin (the nexus), not the grid center.** Don't confuse "sector center line" with "rotation pivot."
 
@@ -208,24 +316,30 @@ These were captured in `game_design.md` as prospects to track, not as decided. T
 
 Reasonable orderings, given dependencies:
 
-**Path A — Build out gameplay loop**
-1. Add `CellState::Crystal` (or chosen alternative). Mark crystal cells at sector construction.
-2. Build a `FlowFieldManager` that owns N+1 fields per `(MoveType, unit_size)` for one map, with `regenerate_all()` and a per-goal `field_for(goal_idx, mt, size)`.
-3. Implement a minimal `Demon` struct + `WaveManager` that spawns demons at a portal and steps them via flow-field steering.
-4. **Then** start on enrage / anti-ping-pong (needs demons to ping-pong before it's testable).
+All three paths got a first slice on 2026-06-14 (see §3.6). Remaining work per path:
 
-**Path B — Get something on screen first**
-1. Flesh out `Engine::update`/`render` to call into a `Renderer` that draws each `Sector`'s grid with its rotation.
-2. Render crystals as a visible marker.
-3. Add a debug overlay for flow-field cost / direction.
-4. *Then* gameplay loop.
+**Path A — Gameplay loop** (loop exists: demons walk the shard route to the Nexus)
+1. **Demon enrage** — implement obstruction-aware smashing + anti-ping-pong; hook at the
+   "hold position" branch in `World::step_demon`.
+2. **Cost-aware boundary handoff** — choose the cheapest seam using flow-field cost-to-goal
+   instead of the nearest boundary cell.
+3. In-game **WaveManager** (CW/CCW alternation, portal selection) instead of scripted spawns.
+4. Tower targeting/projectiles + demon HP so defense actually does something.
+5. Crystal as a real `CellState` occupant with shards/HP/footprint.
 
-**Path C — Lock down core infrastructure**
-1. Build the threading model from `architecture.md` (game logic on one thread, pathfinding on another).
-2. Build the UDP reliability layer (sequence numbers, ACKs, simple replay window).
-3. Build game-state serialization.
+**Path B — On screen** (renderer exists; exercised headlessly)
+1. Wire `Renderer` into the **windowed** `Engine::update/render` with an interactive camera.
+2. Flow-field cost/direction debug overlay; grid lines; HP bars; HUD text (SDL_ttf).
+3. Sprite/animation system.
 
-The user has not picked a path. Confirm before committing to one.
+**Path C — Infrastructure** (state serialization done)
+1. Threading model from `architecture.md` (logic / pathfinding threads).
+2. UDP reliability layer (sequence numbers, ACKs, replay window) on top of `UDPSocket`.
+3. Wire `serialize_world` into a host→peer sync + event-replay path (determinism is already
+   tested, so lockstep is viable).
+
+The AI harness (`record.sh`) should be the verification path for all of the above: add a
+scenario that exercises the feature, record it, review the video.
 
 ## 8. House Rules
 
@@ -246,6 +360,10 @@ If you learn new project-shaping facts or get feedback on approach, update memor
 
 ## 10. Git State
 
-- Branch: `master` (the repo's only branch). Remote `origin` = `git@github.com:AllenGreen/MAD.git`.
-- Single root commit `0dd97d2` ("Initial commit: MAD tower defense engine scaffolding").
-- Pending work since that commit: crystal positions on `Sector`/`GameMap` and the 4 new tests — not yet committed.
+- Branch: `master`. Remote `origin` = `git@github.com:AllenGreen/MAD.git`.
+- Commits: `0dd97d2` (scaffolding) → `178f6d0` (crystal positions).
+- **Uncommitted** (this session, 2026-06-14): the entire AI harness + first gameplay loop —
+  `core/world`, `core/scenario`, `core/recorder`, `core/serialize`, `game/flow_field_manager`,
+  `rendering/camera`, `rendering/renderer`, `tools/capture.py`, `record.sh`, `scenarios/`,
+  `tests/test_camera.cpp`, `tests/test_world.cpp`, `documentation/ai_harness.md`, plus edits to
+  `CMakeLists.txt`, `main.cpp`, this file. Not yet committed (awaiting review).

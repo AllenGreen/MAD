@@ -271,6 +271,34 @@ TEST(flow_field_with_wall) {
     return true;
 }
 
+TEST(flow_field_direction_never_crosses_wall_edge) {
+    // Regression: the steering direction must always be a *legal* move. A cell
+    // across a wall edge may be cheaper, but pointing there clips through the
+    // wall. (Both cells stay walkable, so this is missed by tower-based tests.)
+    auto map = make_simple_map(10, 10);
+    auto& grid = map.sector(0).grid();
+    // Horizontal wall between rows 4 and 5 across the whole width except col 9.
+    for (int c = 0; c < 9; ++c)
+        grid.add_wall({{c, 5}, EdgeType::Horizontal});
+
+    FlowField ff(grid, 10, 10);
+    ff.generate({3, 9}, MoveType::Ground); // goal below the wall
+
+    for (int r = 0; r < 10; ++r)
+        for (int c = 0; c < 10; ++c) {
+            CellCoord cell{c, r};
+            if (ff.cost_at(cell) == FlowField::UNREACHABLE) continue;
+            CellCoord nb = ff.best_neighbor(cell);
+            if (nb == cell) continue; // goal / stuck
+            ASSERT_TRUE(grid.can_move(cell, nb)); // never steers through a wall
+        }
+
+    // And a cell just above the wall must route to the gap (col 9), not down.
+    CellCoord above{3, 4};
+    ASSERT_TRUE(ff.best_neighbor(above) != (CellCoord{3, 5}));
+    return true;
+}
+
 TEST(flow_field_unreachable) {
     auto map = make_simple_map(10, 10);
     auto& grid = map.sector(0).grid();

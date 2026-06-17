@@ -35,14 +35,12 @@ TEST(sector_cell_to_world_sector0) {
                      .map_radius = 20.0, .cell_size = 1.0};
     GameMap map(config);
 
-    // Center column, top row
-    WorldPos wp = map.sector(0).cell_to_world({5, 0});
-    // Should be near x=0 (center line), y=map_radius (top)
-    // lx = (5+0.5)*1 = 5.5, grid_w=10, ux = 5.5-5 = 0.5
-    // ly = (0+0.5)*1 = 0.5, uy = 20 - 0.5 = 19.5
-    // rotation=0: world = (0.5*1 + 19.5*0, -0.5*0 + 19.5*1) = (0.5, 19.5)
-    ASSERT_TRUE(std::abs(wp.x - 0.5) < 0.01);
-    ASSERT_TRUE(std::abs(wp.y - 19.5) < 0.01);
+    // Polar grid: row 0 is the outer (portal) arc, so a top-row cell sits near
+    // radius = map_radius, and a centre-column cell is near the +Y centre line.
+    WorldPos wp = map.sector(0).cell_to_world({5, 0});                 // col 5 of 10
+    ASSERT_TRUE(std::abs(std::hypot(wp.x, wp.y) - 20.0) < 1.0);        // ~outer radius
+    ASSERT_TRUE(wp.y > 18.0);                                          // near the top
+    ASSERT_TRUE(std::abs(wp.x) < 3.0);                                 // near the centre line
     return true;
 }
 
@@ -147,23 +145,19 @@ TEST(sector_nexus_cells) {
     return true;
 }
 
-TEST(sector_wedge_masking) {
-    // With 6 players, each sector covers 60 degrees (half_angle = 30 deg).
-    // A wide grid will have corners outside the narrower wedge.
+TEST(sector_polar_no_masking) {
+    // Polar grid: columns span exactly the wedge, so EVERY cell is inside it --
+    // nothing is masked, and every cell's centre passes contains_world.
     MapConfig config{.num_players = 6, .grid_width = 30, .grid_height = 20,
                      .map_radius = 30.0, .cell_size = 1.0};
     GameMap map(config);
-
-    auto& grid = map.sector(0).grid();
-    // At row 19: uy = 30 - 19.5 = 10.5. tan(30deg) ~= 0.577.
-    // Max |ux| = 10.5 * 0.577 = ~6.06. Grid half-width = 15.
-    // Cell (0, 19): ux = 0.5 - 15 = -14.5, way outside.
-    CellCoord corner{0, 19};
-    ASSERT_EQ(grid.cell_state(corner), CellState::Blocked);
-
-    // Center column should still be walkable
-    CellCoord center{15, 10};
-    ASSERT_TRUE(grid.is_walkable(center));
+    const auto& sec = map.sector(0);
+    for (int row = 0; row < 20; ++row)
+        for (int col = 0; col < 30; ++col) {
+            CellCoord c{col, row};
+            ASSERT_TRUE(sec.grid().is_walkable(c));
+            ASSERT_TRUE(sec.contains_world(sec.cell_to_world(c)));
+        }
     return true;
 }
 
